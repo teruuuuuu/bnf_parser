@@ -13,4 +13,4 @@ lazy val root = (project in file("."))
     libraryDependencies += scalaTest % Test
   )
 
-mainClass in (Compile, run) := Some("jp.co.teruuu.converter.Log4jConverter")
+mainClass in (Compile, run) := Some("jp.co.teruuu.converter.BnfConverter")

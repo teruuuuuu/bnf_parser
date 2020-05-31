@@ -1,0 +1,14 @@
+number ::= ("0"|"1"|"2"|"3"|"4"|"5"|"6"|"7"|"8"|"9")
+date ::= number + "-" number + "-" number + sp number + ":" number + ":" number + "," number +
+level ::= ("DEBUG"|"INFO"|"WARN"|"ERROR"|"FATAL")
+package ::= notsp
+thread ::= notsp
+command ::= ("add"|"remove"|"set")
+global ::= ("globalAdd"|"globalRemove")
+name ::= ("A"|"B"|"C") ("A"|"B"|"C") ("A"|"B"|"C")
+point ::= number + "." number +
+trimed ::= {notsp sp} notsp
+basiccommand ::= date sp level sp package sp thread sp command sp name ":" point
+globalcommand ::= date sp level sp package sp thread sp global sp point
+movecommand ::= date sp level sp package sp thread sp "move" sp "from" sp name sp "to" sp name sp ":" sp point
+root ::= basiccommand | globalcommand | movecommand

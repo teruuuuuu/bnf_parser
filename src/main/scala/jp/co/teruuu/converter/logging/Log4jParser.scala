@@ -10,14 +10,6 @@ case class LogLevel(val name: String)
 
 case class Log4jLine(date: LocalDateTime, logLevel: LogLevel, name: String, thread: String, content: String) extends LogLine
 
-sealed abstract class JValue
-case class JObject(properties: (String, JValue)*) extends JValue
-case class JArray(elements: JValue*) extends JValue
-case class JString(value: String) extends JValue
-case class JNumber(value: Double) extends JValue
-case class JBoolean(value: Boolean) extends JValue
-case object JNull extends JValue
-
 object Log4jParser extends SCombinator {
   def root: Parser[Log4jLine] = for{
     _ <- DefaultSpace.*
