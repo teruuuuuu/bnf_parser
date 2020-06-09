@@ -2,12 +2,45 @@ package jp.co.teruuu.converter.bnf
 
 import com.github.kmizu.scomb.{Location, Result, SCombinator}
 
-
 object BnfParser extends SCombinator {
+  var defMap = Map.empty[String, Parser[ParsedSymbol]]
 
-  case class SymbolDef(symbol: String, parser: Parser[String])
+  def initial_symbol: Map[String, Parser[ParsedSymbol]] = Map(
+    "sp" -> rule(DefaultSpace.+ ^^ (_ => Map("_" -> List(" ")))),
+    "notsp" -> rule(except(' ').+ ^^ (a => Map("_" -> List(a.mkString)))),
+  )
 
-  var defMap = Map.empty[String, Parser[String]]
+  case class SymbolDef(symbol: String, parser: Parser[ParsedSymbol])
+
+  type ParsedSymbol = Map[String, List[String]]
+
+  object ParsedSymbol {
+    def empty = Map.empty[String, List[String]]
+
+    def append(a1: ParsedSymbol, a2: ParsedSymbol) =
+      a2.foldLeft(a1)((acc, cur) =>
+        acc updated(cur._1, acc.getOrElse(cur._1, List.empty[String]) ++ cur._2))
+
+    def appendSeq(seq: List[ParsedSymbol]) = seq match {
+      case head :: tail => tail.foldLeft(head)(append)
+      case _ => empty
+    }
+
+    def string(str: String) = Map("_" -> List(str))
+
+    def to_symbol(a: ParsedSymbol, symbol: String) =
+      a updated(symbol, List(a.getOrElse("_", List()).mkString))
+
+    def toJson(a: ParsedSymbol, m: Map[String, List[String]]) =
+      s"${
+        "{" + m.map(v =>
+          "\"" + v._1.replace("\"", "\\\"")  + "\":" + (v._2.filter(k => a.contains(k)) match {
+            case seq if seq.nonEmpty => "\"" + seq.map(a.getOrElse(_, List()).mkString(",")).mkString(",").replace("\"", "\\\"") + "\""
+            case _ => "null"
+          })
+        ).mkString(",") + "}"
+      }"
+  }
 
   def bnf_parser: Parser[SymbolDef] = for {
     _ <- DefaultSpace.*
@@ -21,12 +54,14 @@ object BnfParser extends SCombinator {
 
   lazy val symbol: Parser[String] = rule {
     for {
+      _ <- $("<")
       a <- char
       b <- str
+      _ <- $(">")
     } yield a + b
   }
 
-  lazy val definition: Parser[Parser[String]] = rule {
+  lazy val definition: Parser[Parser[ParsedSymbol]] = rule {
     for {
       _ <- DefaultSpace.*
       a <- rule(string | optional | repeat | group | defined_symbol)
@@ -38,12 +73,19 @@ object BnfParser extends SCombinator {
       }.*
       _ <- DefaultSpace.*
     } yield rule(b match {
-        case None => c.foldLeft(a)((acc, cur) => (acc|cur))
-        case Some("+") => c.foldLeft(a.+ ^^ (_.mkString))((acc, cur) => (acc|cur))
-        case Some("*") => c.foldLeft(a.* ^^ (_.mkString))((acc, cur) => (acc|cur))
-        case _ => sys.error("")
-      })
-  }.+ ^^ {case seq: List[Parser[String]] => seq.tail.foldLeft(seq.head)((acc,cur) => acc ~ cur ^^ {case a ~ b => a + b})}
+      case None => c.foldLeft(a)((acc, cur) => (acc | cur))
+      case Some("+") => c.foldLeft(a.+ ^^ {
+        case l if l.isEmpty => ParsedSymbol.empty
+        case x => ParsedSymbol.appendSeq(x)
+      })((acc, cur) => acc | cur)
+      case Some("*") => c.foldLeft(a.* ^^ {
+        case l if l.isEmpty => ParsedSymbol.empty
+        case x => ParsedSymbol.appendSeq(x)
+      })((acc, cur) => acc | cur)
+      case _ => sys.error("")
+    })
+  }.+ ^^ (a => a.tail.foldLeft(a.head)((acc, cur) =>
+    acc ~ cur ^^ { case a ~ b => ParsedSymbol.append(a, b) }))
 
   lazy val char: Parser[String] = rule {
     for {
@@ -70,25 +112,25 @@ object BnfParser extends SCombinator {
     case otherwise => otherwise
   }
 
-  lazy val string: Parser[Parser[String]] = rule {
+  lazy val string: Parser[Parser[ParsedSymbol]] = rule {
     for {
       _ <- $("\"")
       contents <- ($("\\") ~ any ^^ { case _ ~ ch => escape(ch).toString } | except('"')).*
       _ <- $("\"").l("double quote")
-    } yield $(contents.mkString)
+    } yield $(contents.mkString) ^^ (a => ParsedSymbol.string(a))
   }
 
-  lazy val optional: Parser[Parser[String]] = rule {
+  lazy val optional: Parser[Parser[ParsedSymbol]] = rule {
     for {
       _ <- $("[")
       _ <- DefaultSpace.*
       a <- definition
       _ <- DefaultSpace.*
       _ <- $("]")
-    } yield a.? ^^ (_.mkString)
+    } yield a.? ^^ (a => ParsedSymbol.string(a.mkString))
   }
 
-  lazy val group: Parser[Parser[String]] = rule {
+  lazy val group: Parser[Parser[ParsedSymbol]] = rule {
     for {
       _ <- $("(")
       _ <- DefaultSpace.*
@@ -98,22 +140,21 @@ object BnfParser extends SCombinator {
     } yield a
   }
 
-  lazy val repeat: Parser[Parser[String]] = rule {
+  lazy val repeat: Parser[Parser[ParsedSymbol]] = rule {
     for {
       _ <- $("{")
       _ <- DefaultSpace.*
       a <- definition
       _ <- DefaultSpace.*
       _ <- $("}")
-    } yield a.* ^^ (_.mkString)
+    } yield a.* ^^ (ParsedSymbol.appendSeq)
   }
 
-  lazy val defined_symbol: Parser[Parser[String]] = rule {
-    for {
-      a <- symbol ^^ (symbol =>
-        defMap.getOrElse(symbol, sys.error("symbol not defined")))
-    } yield a
-  }
+  lazy val defined_symbol: Parser[Parser[ParsedSymbol]] =
+    symbol ^^ (symbol =>
+      defMap.getOrElse(symbol, sys.error("symbol not defined")) ^^ (
+        a => ParsedSymbol.to_symbol(a, symbol)))
+
 
   def load_bnf(definitions: List[String]): List[Result[SymbolDef]] = {
     defMap = initial_symbol
@@ -131,16 +172,11 @@ object BnfParser extends SCombinator {
     )
   }
 
-  def parse(input: String): Result[String] = defMap.get("root") match {
+  def parse(input: String): Result[ParsedSymbol] = defMap.get("root") match {
     case Some(f) => parse(f, input) match {
-      case success: Result.Success[String] => success
+      case success: Result.Success[ParsedSymbol] => success
       case Result.Failure(location, message) => Result.Failure(location, s"parse failed: ${message}")
     }
     case None => Result.Failure(Location(-1, -1), "parse failed: root parser not found")
   }
-
-  def initial_symbol: Map[String, Parser[String]] = Map(
-    "sp" -> rule(DefaultSpace.+ ^^ (_ => " ")),
-    "notsp" -> rule(except(' ').+ ^^ (a => a.mkString)),
-  )
 }
