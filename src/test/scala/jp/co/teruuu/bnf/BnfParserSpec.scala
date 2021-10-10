@@ -3,34 +3,49 @@ package jp.co.teruuu.bnf
 import com.github.kmizu.scomb.Result
 import org.scalatest.diagrams.Diagrams
 import org.scalatest.funspec.AnyFunSpec
-import jp.co.teruuu.bnf.BnfObject.BnfParser
 
 import scala.io.Source
 
-class BnfObjectSpec extends AnyFunSpec with Diagrams {
+class BnfParserSpec extends AnyFunSpec with Diagrams {
+  describe("Basic") {
+    BnfParser.apply(List("<abc> ::= \"abc\"+", "<root> ::= \"root\" + <abc>")) match {
+      case Result.Success(parser) =>
+        parser.parse("rootrootabc")
+    }
+  }
+
   describe("BnfObjectSpec1") {
     val bnf_definition = Source.fromFile(getClass.getClassLoader.getResource("bnf/bnf_1.bnf").getFile).getLines().toList
     val question = Source.fromFile(getClass.getClassLoader.getResource("bnf/question_1.txt").getFile).getLines().toList
     val ans = Source.fromFile(getClass.getClassLoader.getResource("bnf/ans_1.txt").getFile).getLines().toList.map(_.equals("true"))
-    val (load_result, bnf_opt) = BnfParser.apply(bnf_definition)
-
-    it("load bnf definition") {
-      assert(!load_result.exists(_.isInstanceOf[Result.Failure]))
-    }
-
-    it("parse by bnf") {
-      assert(bnf_opt.isDefined)
-      bnf_opt match {
-        case Some(parser) => {
-          question.zip(ans).foreach {
-            case (q, a) => {
-              assert(parser.parse(q).isInstanceOf[Result.Success[_]] == a)
-            }
+    val a = BnfParser.apply(bnf_definition)
+    a match {
+      case Result.Success(parser) =>
+        question.zip(ans).foreach {
+          case (q, a) => {
+            assert(parser.parse(q).isInstanceOf[Result.Success[_]] == a)
           }
         }
-        case _ => assert(false)
-      }
     }
+//    val (load_result, bnf_opt) = BnfParser.apply(bnf_definition)
+//
+//    it("load bnf definition") {
+//      assert(!load_result.exists(_.isInstanceOf[Result.Failure]))
+//    }
+//
+//    it("parse by bnf") {
+//      assert(bnf_opt.isDefined)
+//      bnf_opt match {
+//        case Some(parser) => {
+//          question.zip(ans).foreach {
+//            case (q, a) => {
+//              assert(parser.parse(q).isInstanceOf[Result.Success[_]] == a)
+//            }
+//          }
+//        }
+//        case _ => assert(false)
+//      }
+//    }
   }
 
   describe("BnfObjectSpec2") {
@@ -49,11 +64,14 @@ class BnfObjectSpec extends AnyFunSpec with Diagrams {
       "<uri> ::= <scheme> \"://\" <host> [\"/\" <dir> [\"?\" <params>]]",
       "<root> ::= <uri>"
     )
+
     BnfParser.apply(bnf_definition) match {
-      case (_, Some(parser)) => {
-        println(s"=> ${parser.parse("https://github.com/user/project?abc=def&ghi=jkl").isInstanceOf[Result.Success[_]]}")
+      case Result.Success(parser) => {
+        parser.parse("https://github.com/user/project?abc=def&ghi=jkl")
+
+//        println(s"=> ${parser.parse("https://github.com/user/project?abc=def&ghi=jkl").isInstanceOf[Result.Success[_]]}")
       }
     }
   }
-
 }
+
